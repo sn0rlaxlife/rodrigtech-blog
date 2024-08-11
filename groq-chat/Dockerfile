@@ -19,6 +19,15 @@ COPY . /app
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Create a user and group to run the app
+RUN addgroup -S app && adduser -S app -G app
+
+# Change ownership of the application directory
+RUN chown -R app:app /app
+
+# Switch to the new user
+USER app
+
 # Expose the port the app runs on
 EXPOSE 8000
 

@@ -1,4 +1,4 @@
-# Stage 1: Build the application
+# Step 1
 FROM python:3.10-slim AS build
 
 # Set the working directory
@@ -26,9 +26,7 @@ COPY --from=build /app /app
 
 # Optionally, create a non-root user if needed
 # Uncomment the following lines if Chainguard image requires manual user creation
-RUN addgroup -S app && adduser -S app -G app
-RUN chown -R app:app /app
-USER app
+USER 1000:1000
 
 # Expose the port the app runs on
 EXPOSE 8000

@@ -9,6 +9,7 @@ import os
 import requests
 import json
 from typing import Any, Callable, Set, Dict, List, Optional
+import asyncio
 
 load_dotenv()
 
@@ -80,11 +81,11 @@ funds_string = ", ".join(funds)
 print(f"Funds string: {funds_string}")
 
 # Define our prompt to run against the agent with dynamic portfolio parameters
-age = 30
-risk_tolerance = "medium"
-time_range = "15 years"
-us_equity_allocation = 60
-intl_equity_allocation = 40
+age = 25
+risk_tolerance = "medium 7/10"
+time_range = "25 years"
+us_equity_allocation = 65
+intl_equity_allocation = 35
 
 portfolio_prompt = f"""
 I'm {age} years old with a {risk_tolerance} risk tolerance. I want to create a balanced portfolio 
@@ -105,140 +106,144 @@ For each recommended fund:
 credential = DefaultAzureCredential()
 client = AzureAIAgent.create_client(credential=credential, conn_str=connection)
 
-async with client:
+async def main():
+    async with client:
     # Create a kernel
-    kernel = Kernel()
+        kernel = Kernel()
 
-    # Create the search plugin to add to kernel
-    search_plugin = SearchPlugin(bing_search_subscription_key, bing_search_url)
-    kernel.add_plugin(plugin=search_plugin, plugin_name="search")
+        # Create the search plugin to add to kernel
+        search_plugin = SearchPlugin(bing_search_subscription_key, bing_search_url)
+        kernel.add_plugin(plugin=search_plugin, plugin_name="search")
 
-    # Establish our existing agent by going to portal retrieve the assistant id or agent id
-    finance_definition = await client.agents.get_agent(agent_id=finance_agent)
+        # Establish our existing agent by going to portal retrieve the assistant id or agent id
+        finance_definition = await client.agents.get_agent(agent_id=finance_agent)
 
-    advisor_agent = AzureAIAgent(client=client, definition=finance_definition, kernel=kernel)
-    
-    
-    # Use the agent to run a prompt and get a response
-    editor_definition = await client.agents.get_agent(agent_id=editor_agent)
-    editing_agent = AzureAIAgent(client=client, definition=editor_definition, kernel=kernel)
-
-
-    # Writer Agent that is defined also leveraged for final step
-    writer_definition = await client.agents.get_agent(agent_id=writer_agent)
-    writing_agent = AzureAIAgent(client=client, definition=writer_definition, kernel=kernel)
-
-    # Define our prompt to run against the agent
-    ##prompt = "What is the best method of evasion for ML models?, I'm looking for tactics of evasion that are effective against ML models."
-
-    # Create threads for three agents
-    advisor_thread = AzureAIAgentThread(client=client)
-    editor_thread = AzureAIAgentThread(client=client)
-    writer_thread = AzureAIAgentThread(client=client)
-
-    # try to run the agent and research threads concurrently
-    try:
-        # Get response from first agent
-        print(f"\n--- Response from {advisor_agent.name} ---")
-        agent_response = await advisor_agent.get_response(messages=[portfolio_prompt], thread=advisor_thread)
-
-        # Debug to check the structure of the response
-        print(f"Response type: {type(agent_response)}")
-        print(f"Content type: {(agent_response.message.content)}")
-
-        # Extract the text content safely based on the actual structure
-        if isinstance(agent_response.message.content, list):
-            if isinstance(agent_response.message.content[0], str):
-                first_agent_text = agent_response.message.content[0]
-            elif hasattr(agent_response.message.content[0], 'text'):
-                first_agent_text = agent_response.message.content[0].text
-            else:
-                first_agent_text = str(agent_response.message.content[0])
-        else:
-            first_agent_text = str(agent_response.message.content)
+        advisor_agent = AzureAIAgent(client=client, definition=finance_definition, kernel=kernel)
         
-        # Create a new prompt for the research agent that includes the first agent's response
-        editor_prompt = f"""
-        I received the following investment portfolio recommendation from a financial advisor:
-
-        {first_agent_text}
-
-        Please review this portfolio recommendation for a {age}-year-old investor with {risk_tolerance} risk tolerance 
-        aiming for {us_equity_allocation}% US equities and {intl_equity_allocation}% International Equity.
-
-        Please analyze:
-        1. The appropriateness of fund selection and allocation percentages
-        2. Any gaps or overlooked areas in the portfolio
-        3. Potential optimizations for tax efficiency or risk management
-        4. Additional considerations based on the investor's age and risk profile
-
-        Provide clear, actionable feedback that would improve this recommendation.
-        """
-
-        # Get response from research agent
-        print(f"\n--- Response from {editor_definition.name} --- based on Financial Advisor's output")
-        research_response = await editing_agent.get_response(messages=[editor_prompt], thread=editor_thread)
-        # Extract the research text safely
-        if isinstance(research_response.message.content, list):
-            if isinstance(research_response.message.content[0], str):
-                research_text = research_response.message.content[0]
-            elif hasattr(research_response.message.content[0], 'text'):
-                research_text = research_response.message.content[0].text
-            else:
-                research_text = str(research_response.message.content[0])
-        else:
-            research_text = str(research_response.message.content)
-            
-        print(research_text)
-
-        # Optional: Ask a follow-up question that combines both insights
-        combined_insights = f"""
-        Initial Portfolio Recommendation from Financial Advisor:
-        {first_agent_text}
-
-        Expert Analysis and Improvements from Editor:
-        {research_text}
-        """
-
-        FOLLOW_UP = f"""
-        Based on both the initial recommendation and expert analysis, create a comprehensive investment plan for a {age}-year-old 
-        investor with {risk_tolerance} risk tolerance targeting {us_equity_allocation}% US equities and {intl_equity_allocation}% International Equity.
-
-        Your response should be formatted as a professional investment report with:
-        1. Executive Summary
-        2. Recommended Fund Allocation (with percentages)
-        3. Investment Rationale for Each Selected Fund
-        4. Implementation Strategy and Timeline
-        5. Expected Performance and Risk Assessment
-        6. Monitoring and Rebalancing Guidelines
-
-        Present this in a clear, client-ready format with appropriate sections and formatting.
-        """
-        # Send follow-up to the first agent with both response
         
-        # Send follow-up to the first agent with both responses
-        print(f"\n--- Final Investment Report from {writer_definition.name} ---")
-        agent_followup = await writing_agent.get_response(
-            messages=[combined_insights, FOLLOW_UP], 
-            thread=writer_thread
-        )
-        # Extract the follow-up text safely
-        if isinstance(agent_followup.message.content, list):
-            if isinstance(agent_followup.message.content[0], str):
-                followup_text = agent_followup.message.content[0]
-            elif hasattr(agent_followup.message.content[0], 'text'):
-                followup_text = agent_followup.message.content[0].text
+        # Use the agent to run a prompt and get a response
+        editor_definition = await client.agents.get_agent(agent_id=editor_agent)
+        editing_agent = AzureAIAgent(client=client, definition=editor_definition, kernel=kernel)
+
+
+        # Writer Agent that is defined also leveraged for final step
+        writer_definition = await client.agents.get_agent(agent_id=writer_agent)
+        writing_agent = AzureAIAgent(client=client, definition=writer_definition, kernel=kernel)
+
+        # Define our prompt to run against the agent
+        ##prompt = "What is the best method of evasion for ML models?, I'm looking for tactics of evasion that are effective against ML models."
+
+        # Create threads for three agents
+        advisor_thread = AzureAIAgentThread(client=client)
+        editor_thread = AzureAIAgentThread(client=client)
+        writer_thread = AzureAIAgentThread(client=client)
+
+        # try to run the agent and research threads concurrently
+        try:
+            # Get response from first agent
+            print(f"\n--- Response from {advisor_agent.name} ---")
+            agent_response = await advisor_agent.get_response(messages=[portfolio_prompt], thread=advisor_thread)
+
+            # Debug to check the structure of the response
+            print(f"Response type: {type(agent_response)}")
+            print(f"Content type: {(agent_response.message.content)}")
+
+            # Extract the text content safely based on the actual structure
+            if isinstance(agent_response.message.content, list):
+                if isinstance(agent_response.message.content[0], str):
+                    first_agent_text = agent_response.message.content[0]
+                elif hasattr(agent_response.message.content[0], 'text'):
+                    first_agent_text = agent_response.message.content[0].text
+                else:
+                    first_agent_text = str(agent_response.message.content[0])
             else:
-                followup_text = str(agent_followup.message.content[0])
-        else:
-            followup_text = str(agent_followup.message.content)
+                first_agent_text = str(agent_response.message.content)
             
-        print(followup_text)
-    finally:
-        # Clean up threads
-        if advisor_thread:
-            await advisor_thread.delete()
-        if editor_thread:
-            await editor_thread.delete()
-        if writer_thread:
-            await writer_thread.delete()
+            # Create a new prompt for the research agent that includes the first agent's response
+            editor_prompt = f"""
+            I received the following investment portfolio recommendation from a financial advisor:
+
+            {first_agent_text}
+
+            Please review this portfolio recommendation for a {age}-year-old investor with {risk_tolerance} risk tolerance 
+            aiming for {us_equity_allocation}% US equities and {intl_equity_allocation}% International Equity.
+
+            Please analyze:
+            1. The appropriateness of fund selection and allocation percentages
+            2. Any gaps or overlooked areas in the portfolio
+            3. Potential optimizations for tax efficiency or risk management
+            4. Additional considerations based on the investor's age and risk profile
+
+            Provide clear, actionable feedback that would improve this recommendation.
+            """
+
+            # Get response from research agent
+            print(f"\n--- Response from {editor_definition.name} --- based on Financial Advisor's output")
+            research_response = await editing_agent.get_response(messages=[editor_prompt], thread=editor_thread)
+            # Extract the research text safely
+            if isinstance(research_response.message.content, list):
+                if isinstance(research_response.message.content[0], str):
+                    research_text = research_response.message.content[0]
+                elif hasattr(research_response.message.content[0], 'text'):
+                    research_text = research_response.message.content[0].text
+                else:
+                    research_text = str(research_response.message.content[0])
+            else:
+                research_text = str(research_response.message.content)
+                
+            print(research_text)
+
+            # Optional: Ask a follow-up question that combines both insights
+            combined_insights = f"""
+            Initial Portfolio Recommendation from Financial Advisor:
+            {first_agent_text}
+
+            Expert Analysis and Improvements from Editor:
+            {research_text}
+            """
+
+            FOLLOW_UP = f"""
+            Based on both the initial recommendation and expert analysis, create a comprehensive investment plan for a {age}-year-old 
+            investor with {risk_tolerance} risk tolerance targeting {us_equity_allocation}% US equities and {intl_equity_allocation}% International Equity.
+
+            Your response should be formatted as a professional investment report with:
+            1. Executive Summary
+            2. Recommended Fund Allocation (with percentages)
+            3. Investment Rationale for Each Selected Fund
+            4. Implementation Strategy and Timeline
+            5. Expected Performance and Risk Assessment
+            6. Monitoring and Rebalancing Guidelines
+
+            Present this in a clear, client-ready format with appropriate sections and formatting.
+            """
+            # Send follow-up to the first agent with both response
+            
+            # Send follow-up to the first agent with both responses
+            print(f"\n--- Final Investment Report from {writer_definition.name} ---")
+            agent_followup = await writing_agent.get_response(
+                messages=[combined_insights, FOLLOW_UP], 
+                thread=writer_thread
+            )
+            # Extract the follow-up text safely
+            if isinstance(agent_followup.message.content, list):
+                if isinstance(agent_followup.message.content[0], str):
+                    followup_text = agent_followup.message.content[0]
+                elif hasattr(agent_followup.message.content[0], 'text'):
+                    followup_text = agent_followup.message.content[0].text
+                else:
+                    followup_text = str(agent_followup.message.content[0])
+            else:
+                followup_text = str(agent_followup.message.content)
+                
+            print(followup_text)
+        finally:
+            # Clean up threads
+            if advisor_thread:
+                await advisor_thread.delete()
+            if editor_thread:
+                await editor_thread.delete()
+            if writer_thread:
+                await writer_thread.delete()
+if __name__ == "__main__":
+    asyncio.run(main())
+    # Run the main function

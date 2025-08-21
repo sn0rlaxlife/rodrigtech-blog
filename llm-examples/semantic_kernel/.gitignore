@@ -2,3 +2,4 @@
 .env.local
 
 # Ignore all files
+./red*
